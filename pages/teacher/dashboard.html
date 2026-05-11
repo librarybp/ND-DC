@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard · Teacher · Barpeta Polytechnic</title>
+  <link rel="icon" type="image/png" href="../../assets/logo.png">
+  <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body>
+  <script src="../../js/store.js"></script>
+  <script src="../../js/layout.js"></script>
+  <script>
+    const user = bootPage({
+      role: 'teacher', currentPage: 'dashboard.html',
+      crumb: 'Overview', title: 'Welcome, ' + (Auth.current()?.name?.split(' ').slice(1).join(' ') || '')
+    });
+    if (!user) throw new Error('Not authenticated');
+
+    const teacher = Store.byId('teachers', user.id);
+    const subjects = Store.list('subjects');
+    const assignedSubjects = subjects.filter(s => teacher.subjects.includes(s.code));
+    const mySubs = Store.list('submissions').filter(s => s.teacherId === user.id);
+    const settings = Store.load().settings;
+
+    const stats = [
+      { label: 'Assigned Subjects', value: assignedSubjects.length, accent: 'navy' },
+      { label: 'Submissions Made', value: mySubs.length, accent: 'navy' },
+      { label: 'Pending Review', value: mySubs.filter(s => ['submitted','review'].includes(s.status)).length, accent: 'warning' },
+      { label: 'Approved', value: mySubs.filter(s => s.status === 'approved').length, accent: 'success' },
+      { label: 'Rejected', value: mySubs.filter(s => s.status === 'rejected').length, accent: 'danger' },
+      { label: 'Locked', value: mySubs.filter(s => s.status === 'locked').length, accent: 'navy' },
+    ];
+
+    document.getElementById('page-content').innerHTML = `
+      <div class="panel" style="background: linear-gradient(135deg, var(--navy-900), var(--navy-700)); color: var(--cream-50); border:none;">
+        <div class="panel-body" style="padding: 28px 32px;">
+          <div class="section-title" style="color: var(--gold-400);">Submission Window</div>
+          <h3 style="color: var(--cream-50); font-size: 1.6rem; margin-bottom: 8px;">
+            ${settings.windowOpen ? '🟢 Open Now' : '🔒 Currently Closed'}
+          </h3>
+          <p style="color: rgba(245,241,230,0.7); margin-bottom: 16px;">
+            Submission window: <strong style="color: var(--gold-400);">${fmt.date(settings.submissionStart)}</strong> to
+            <strong style="color: var(--gold-400);">${fmt.date(settings.submissionEnd)}</strong>
+          </p>
+          ${settings.windowOpen ? `<a href="submissions.html" class="btn btn-gold">Go to Submissions →</a>` : ''}
+        </div>
+      </div>
+
+      <div class="stat-grid">
+        ${stats.map(s => `
+          <div class="stat-card ${s.accent}">
+            <div class="stat-label">${s.label}</div>
+            <div class="stat-value">${s.value}</div>
+          </div>
+        `).join('')}
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h3>Your Assigned Subjects</h3>
+            <div class="sub">Subjects you can submit attendance data for</div>
+          </div>
+        </div>
+        <div class="panel-body nopad">
+          <div class="table-wrap">
+            <table class="data">
+              <thead><tr><th>Code</th><th>Subject</th><th>Department</th><th>Semester</th><th>Last Submission</th><th style="text-align:right">Action</th></tr></thead>
+              <tbody>
+                ${assignedSubjects.length ? assignedSubjects.map(s => {
+                  const last = mySubs.filter(sub => sub.subjectId === s.id).sort((a,b)=> (b.updatedAt||b.createdAt).localeCompare(a.updatedAt||a.createdAt))[0];
+                  return `<tr>
+                    <td><strong>${s.code}</strong></td>
+                    <td>${s.name}</td>
+                    <td>${s.department}</td>
+                    <td>${s.semester} Sem</td>
+                    <td>${last ? `<span class="badge ${last.status}">${last.status}</span> · ${fmt.date(last.updatedAt||last.createdAt)}` : '<span style="color:var(--ink-mute);">No submission yet</span>'}</td>
+                    <td style="text-align:right"><a href="submissions.html?subject=${s.id}" class="btn sm btn-dark">${last ? 'View' : 'Start'} →</a></td>
+                  </tr>`;
+                }).join('') : `<tr><td colspan="6"><div class="empty"><h4>No subjects assigned</h4><p>Please contact the Examination Cell to be assigned subjects.</p></div></td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    `;
+  </script>
+</body>
+</html>

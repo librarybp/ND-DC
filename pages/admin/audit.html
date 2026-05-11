@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Audit Trail · Examination Cell</title>
+  <link rel="icon" type="image/png" href="../../assets/logo.png">
+  <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body>
+  <script src="../../js/store.js"></script>
+  <script src="../../js/layout.js"></script>
+  <script>
+    const user = bootPage({
+      role: 'admin', currentPage: 'audit.html',
+      crumb: 'System', title: 'Audit Trail'
+    });
+    if (!user) throw new Error('Not authenticated');
+
+    function renderPage() {
+      const logs = Store.list('auditLogs');
+      const filter = (document.getElementById('search')?.value || '').toLowerCase();
+      const filtered = logs.filter(l =>
+        !filter || l.action.toLowerCase().includes(filter) || l.detail.toLowerCase().includes(filter) || l.user.toLowerCase().includes(filter)
+      );
+
+      const actionColor = {
+        login: 'submitted', logout: 'draft',
+        create: 'approved', edit: 'review',
+        delete: 'rejected', approved: 'approved',
+        rejected: 'rejected', settings: 'review',
+        print: 'locked', import: 'submitted',
+        backup: 'review', restore: 'rejected',
+      };
+
+      document.getElementById('page-content').innerHTML = `
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>System Audit Log</h3>
+              <div class="sub">${logs.length} events recorded · most recent first</div>
+            </div>
+          </div>
+          <div class="filter-bar">
+            <div class="search-input">
+              ${ICONS.search}
+              <input type="text" id="search" placeholder="Search by user, action, or detail" oninput="renderPage()">
+            </div>
+          </div>
+          <div class="panel-body nopad">
+            <div class="table-wrap">
+              <table class="data">
+                <thead><tr><th>Timestamp</th><th>User</th><th>Action</th><th>Detail</th></tr></thead>
+                <tbody>
+                  ${filtered.length ? filtered.map(l => `
+                    <tr>
+                      <td><code style="font-size:.78rem;">${fmt.dateTime(l.ts)}</code></td>
+                      <td><strong>${l.user}</strong></td>
+                      <td><span class="badge ${actionColor[l.action] || 'draft'}">${l.action}</span></td>
+                      <td>${l.detail}</td>
+                    </tr>
+                  `).join('') : `<tr><td colspan="4"><div class="empty"><h4>No events match the filter</h4></div></td></tr>`}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    renderPage();
+  </script>
+</body>
+</html>

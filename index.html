@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign In · Barpeta Polytechnic Examination Cell Portal</title>
+  <link rel="icon" type="image/png" href="assets/logo.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="login-shell">
+    <!-- Left brand panel -->
+    <div class="login-brand">
+      <div class="login-brand-inner">
+        <div class="crest">
+          <img src="assets/logo.png" alt="Barpeta Polytechnic">
+          <div class="crest-text">
+            <div class="name">Barpeta Polytechnic</div>
+            <div class="tag">Govt. of Assam · Estd. 2017</div>
+          </div>
+        </div>
+        <h1>The <em>Examination Cell</em><br>Portal.</h1>
+        <p class="lead">A unified workspace for teachers and the Examination Cell to compile, verify, and finalize the official lists of NC, DC, and eligible candidates each semester.</p>
+      </div>
+      <div class="established">Ganakkuchi · Barpeta · Assam</div>
+    </div>
+
+    <!-- Right form panel -->
+    <div class="login-form-wrap">
+      <div class="login-form">
+        <div class="eyebrow">Examination Cell Portal</div>
+        <h2>Welcome back.</h2>
+        <p class="sub">Sign in to access the portal.</p>
+
+        <div class="role-toggle" id="role-toggle">
+          <button type="button" class="active" data-role="admin">Examination Cell</button>
+          <button type="button" data-role="teacher">Teacher</button>
+        </div>
+
+        <form id="login-form">
+          <div class="field">
+            <label for="username">Username</label>
+            <input type="text" id="username" name="username" autocomplete="username" required>
+          </div>
+          <div class="field">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" autocomplete="current-password" required>
+          </div>
+          <button type="submit" class="btn-primary">
+            Sign In
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+          </button>
+        </form>
+
+        <div class="demo-credentials">
+          <strong id="cred-title">Demo · Examination Cell</strong>
+          <div id="cred-body">
+            <code>admin</code> / <code>admin123</code>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/store.js"></script>
+  <script>
+    let role = 'admin';
+    const toggle = document.getElementById('role-toggle');
+    const credTitle = document.getElementById('cred-title');
+    const credBody = document.getElementById('cred-body');
+
+    toggle.addEventListener('click', e => {
+      const btn = e.target.closest('button[data-role]');
+      if (!btn) return;
+      toggle.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      role = btn.dataset.role;
+      if (role === 'admin') {
+        credTitle.textContent = 'Demo · Examination Cell';
+        credBody.innerHTML = '<code>admin</code> / <code>admin123</code>';
+      } else {
+        credTitle.textContent = 'Demo · Teacher';
+        credBody.innerHTML = '<code>anjan</code> / <code>teacher123</code> &nbsp;·&nbsp; <code>priyanka</code> / <code>teacher123</code>';
+      }
+    });
+
+    document.getElementById('login-form').addEventListener('submit', e => {
+      e.preventDefault();
+      const u = document.getElementById('username').value.trim();
+      const p = document.getElementById('password').value;
+      const user = Auth.login(role, u, p);
+      if (!user) {
+        toast('Invalid credentials. Please try again.', 'danger');
+        return;
+      }
+      toast(`Welcome, ${user.name}`, 'success');
+      setTimeout(() => {
+        if (user.role === 'admin') window.location.href = 'pages/admin/dashboard.html';
+        else window.location.href = 'pages/teacher/dashboard.html';
+      }, 400);
+    });
+
+    // Auto-redirect if already logged in
+    const existing = Auth.current();
+    if (existing) {
+      if (existing.role === 'admin') window.location.href = 'pages/admin/dashboard.html';
+      else window.location.href = 'pages/teacher/dashboard.html';
+    }
+  </script>
+</body>
+</html>

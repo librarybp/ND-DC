@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Students · Examination Cell</title>
+  <link rel="icon" type="image/png" href="../../assets/logo.png">
+  <link rel="stylesheet" href="../../css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <script src="../../js/store.js"></script>
+  <script src="../../js/layout.js"></script>
+  <script>
+    const user = bootPage({
+      role: 'admin', currentPage: 'students.html',
+      crumb: 'Master Data', title: 'Students'
+    });
+    if (!user) throw new Error('Not authenticated');
+
+    let filter = { q: '', dept: '', sem: '' };
+    const PAGE_SIZE = 15;
+    let page = 1;
+
+    function renderPage() {
+      const students = Store.list('students');
+      const filtered = students.filter(s =>
+        (!filter.q || s.name.toLowerCase().includes(filter.q.toLowerCase()) || s.roll.toLowerCase().includes(filter.q.toLowerCase()) || s.regNo.toLowerCase().includes(filter.q.toLowerCase())) &&
+        (!filter.dept || s.department === filter.dept) &&
+        (!filter.sem || s.semester === filter.sem)
+      );
+      const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+      if (page > totalPages) page = totalPages;
+      const slice = filtered.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE);
+
+      document.getElementById('page-content').innerHTML = `
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>Student Registry</h3>
+              <div class="sub">${students.length} enrolled students</div>
+            </div>
+            <div class="btn-group">
+              <button class="btn" onclick="importDialog()">${ICONS.upload} Import Excel</button>
+              <button class="btn" onclick="exportStudents()">${ICONS.download} Export</button>
+              <button class="btn btn-dark" onclick="studentForm()">${ICONS.plus} Add Student</button>
+            </div>
+          </div>
+          <div class="filter-bar">
+            <div class="search-input">
+              ${ICONS.search}
+              <input type="text" id="search" value="${filter.q}" placeholder="Search by name, roll, or registration no." oninput="filter.q=this.value; page=1; renderPage()">
+            </div>
+            <div class="field">
+              <label>Department</label>
+              <select onchange="filter.dept=this.value; page=1; renderPage()">
+                <option value="">All Departments</option>
+                ${Store.list('departments').map(d => `<option ${filter.dept===d.name?'selected':''}>${d.name}</option>`).join('')}
+              </select>
+            </div>
+            <div class="field">
+              <label>Semester</label>
+              <select onchange="filter.sem=this.value; page=1; renderPage()">
+                <option value="">All Semesters</option>
+                ${Store.list('semesters').map(s => `<option value="${s.name}" ${filter.sem===s.name?'selected':''}>${s.name} Sem</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div class="panel-body nopad">
+            <div class="table-wrap">
+              <table class="data">
+                <thead>
+                  <tr>
+                    <th>Roll No</th>
+                    <th>Registration No</th>
+                    <th>Name</th>
+                    <th>Department</th>
+                    <th>Semester</th>
+                    <th style="text-align:right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${slice.length ? slice.map(s => `
+                    <tr>
+                      <td><strong>${s.roll}</strong></td>
+                      <td><code style="font-size:.8rem;">${s.regNo}</code></td>
+                      <td>${s.name}</td>
+                      <td>${s.department}</td>
+                      <td>${s.semester}</td>
+                      <td style="text-align:right">
+                        <button class="btn sm" onclick="studentForm('${s.id}')">${ICONS.edit} Edit</button>
+                        <button class="btn sm" onclick="deleteStudent('${s.id}')">${ICONS.trash}</button>
+                      </td>
+                    </tr>
+                  `).join('') : `<tr><td colspan="6"><div class="empty"><h4>No students match the filter</h4></div></td></tr>`}
+                </tbody>
+              </table>
+            </div>
+            ${totalPages > 1 ? `
+              <div class="pagination">
+                <button onclick="page=Math.max(1,page-1); renderPage()" ${page<=1?'disabled':''}>‹ Prev</button>
+                ${Array.from({length: totalPages}, (_, i) => i+1).slice(Math.max(0,page-3), Math.max(0,page-3)+5).map(p => `<button class="${p===page?'active':''}" onclick="page=${p}; renderPage()">${p}</button>`).join('')}
+                <button onclick="page=Math.min(${totalPages},page+1); renderPage()" ${page>=totalPages?'disabled':''}>Next ›</button>
+              </div>
+            ` : ''}
+          </div>
+        </div>
+      `;
+    }
+
+    function studentForm(id) {
+      const s = id ? Store.byId('students', id) : { id: Store.newId('st'), roll: '', regNo: '', name: '', department: 'Civil Engineering', semester: '1st' };
+      openModal(`
+        <div class="modal-head">
+          <h3>${id ? 'Edit Student' : 'Add Student'}</h3>
+          <button class="icon-btn" onclick="closeModal(this)">${ICONS.x}</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-row">
+            <div class="field"><label>Roll No</label><input id="sf-roll" value="${s.roll}"></div>
+            <div class="field"><label>Registration No</label><input id="sf-reg" value="${s.regNo}"></div>
+          </div>
+          <div class="field"><label>Full Name</label><input id="sf-name" value="${s.name}"></div>
+          <div class="form-row">
+            <div class="field">
+              <label>Department</label>
+              <select id="sf-dept">
+                ${Store.list('departments').map(d => `<option ${s.department===d.name?'selected':''}>${d.name}</option>`).join('')}
+              </select>
+            </div>
+            <div class="field">
+              <label>Semester</label>
+              <select id="sf-sem">
+                ${Store.list('semesters').map(sm => `<option value="${sm.name}" ${s.semester===sm.name?'selected':''}>${sm.name} Semester</option>`).join('')}
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn" onclick="closeModal(this)">Cancel</button>
+          <button class="btn btn-dark" onclick="saveStudent('${s.id}', ${!!id})">${id ? 'Save Changes' : 'Add Student'}</button>
+        </div>
+      `, { large: true });
+    }
+
+    function saveStudent(id, isEdit) {
+      const s = {
+        id,
+        roll: document.getElementById('sf-roll').value.trim(),
+        regNo: document.getElementById('sf-reg').value.trim(),
+        name: document.getElementById('sf-name').value.trim(),
+        department: document.getElementById('sf-dept').value,
+        semester: document.getElementById('sf-sem').value,
+      };
+      if (!s.name || !s.roll) { toast('Name and Roll No are required', 'danger'); return; }
+      Store.upsert('students', s);
+      Store.log(isEdit ? 'edit' : 'create', `${isEdit?'Updated':'Created'} student: ${s.name}`);
+      toast(`Student ${isEdit ? 'updated' : 'added'}`, 'success');
+      closeModal();
+      renderPage();
+    }
+
+    function deleteStudent(id) {
+      const s = Store.byId('students', id);
+      confirmDialog(`Delete student "${s.name}"? This cannot be undone.`, () => {
+        Store.remove('students', id);
+        Store.log('delete', `Deleted student: ${s.name}`);
+        toast('Student deleted', 'success');
+        renderPage();
+      });
+    }
+
+    function exportStudents() {
+      const students = Store.list('students');
+      const data = students.map(s => ({
+        'Roll No': s.roll, 'Registration No': s.regNo, Name: s.name,
+        Department: s.department, Semester: s.semester
+      }));
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Students');
+      XLSX.writeFile(wb, 'bpoly_students.xlsx');
+      toast('Students exported', 'success');
+    }
+
+    function importDialog() {
+      openModal(`
+        <div class="modal-head"><h3>Import Students from Excel</h3><button class="icon-btn" onclick="closeModal(this)">${ICONS.x}</button></div>
+        <div class="modal-body">
+          <p style="margin-bottom:14px;">Upload a .xlsx file with columns: <code>Roll No, Registration No, Name, Department, Semester</code></p>
+          <input type="file" id="import-file" accept=".xlsx,.xls,.csv">
+        </div>
+        <div class="modal-foot">
+          <button class="btn" onclick="closeModal(this)">Cancel</button>
+          <button class="btn btn-dark" onclick="doImport()">Import</button>
+        </div>
+      `);
+    }
+
+    function doImport() {
+      const f = document.getElementById('import-file').files[0];
+      if (!f) { toast('Please select a file', 'danger'); return; }
+      const reader = new FileReader();
+      reader.onload = e => {
+        const wb = XLSX.read(e.target.result, { type: 'binary' });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet);
+        let added = 0;
+        rows.forEach(r => {
+          const s = {
+            id: Store.newId('st'),
+            roll: r['Roll No'] || r['roll no'] || r.Roll || '',
+            regNo: r['Registration No'] || r['Reg No'] || r.regNo || '',
+            name: r.Name || r.name || '',
+            department: r.Department || r.department || 'Civil Engineering',
+            semester: r.Semester || r.semester || '1st',
+          };
+          if (s.name && s.roll) { Store.upsert('students', s); added++; }
+        });
+        Store.log('import', `Imported ${added} students`);
+        toast(`${added} students imported`, 'success');
+        closeModal();
+        renderPage();
+      };
+      reader.readAsBinaryString(f);
+    }
+
+    renderPage();
+  </script>
+</body>
+</html>

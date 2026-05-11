@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Submissions · Teacher</title>
+  <link rel="icon" type="image/png" href="../../assets/logo.png">
+  <link rel="stylesheet" href="../../css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <script src="../../js/store.js"></script>
+  <script src="../../js/layout.js"></script>
+  <script>
+    const user = bootPage({
+      role: 'teacher', currentPage: 'submissions.html',
+      crumb: 'My Submissions', title: 'Submissions'
+    });
+    if (!user) throw new Error('Not authenticated');
+
+    const teacher = Store.byId('teachers', user.id);
+    const settings = Store.load().settings;
+    const isLocked = !settings.windowOpen;
+
+    function renderPage() {
+      const subjects = Store.list('subjects');
+      const assignedSubjects = subjects.filter(s => teacher.subjects.includes(s.code));
+      const mySubs = Store.list('submissions').filter(s => s.teacherId === user.id);
+
+      document.getElementById('page-content').innerHTML = `
+        ${isLocked ? `
+          <div class="panel" style="background: var(--warning-bg); border-color: var(--warning);">
+            <div class="panel-body" style="display:flex; align-items:center; gap:16px;">
+              ${ICONS.lock}
+              <div>
+                <h4 style="color: var(--warning);">Submission window is closed</h4>
+                <p style="font-size:.88rem; color:var(--ink-soft); margin-top:4px;">You can view your existing submissions but cannot create or edit new ones until the window reopens.</p>
+              </div>
+            </div>
+          </div>
+        ` : ''}
+
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>Subject Submissions</h3>
+              <div class="sub">Click a subject to create or edit your submission</div>
+            </div>
+          </div>
+          <div class="panel-body nopad">
+            <div class="table-wrap">
+              <table class="data">
+                <thead><tr><th>Code</th><th>Subject</th><th>Department / Sem</th><th>Status</th><th>Records</th><th>Last Updated</th><th style="text-align:right">Action</th></tr></thead>
+                <tbody>
+                  ${assignedSubjects.length ? assignedSubjects.map(s => {
+                    const sub = mySubs.filter(x => x.subjectId === s.id).sort((a,b)=> (b.updatedAt||b.createdAt).localeCompare(a.updatedAt||a.createdAt))[0];
+                    return `<tr>
+                      <td><strong>${s.code}</strong></td>
+                      <td>${s.name}</td>
+                      <td>${s.department}<br><span style="font-size:.78rem; color:var(--ink-mute);">${s.semester} Sem</span></td>
+                      <td>${sub ? `<span class="badge ${sub.status}">${sub.status}</span>` : '<span style="color:var(--ink-mute);">Not started</span>'}</td>
+                      <td>${sub ? sub.records.length : '—'}</td>
+                      <td>${sub ? fmt.dateTime(sub.updatedAt||sub.createdAt) : '—'}</td>
+                      <td style="text-align:right">
+                        <button class="btn sm btn-dark" onclick="openSubmission('${s.id}')">
+                          ${sub ? (['locked','approved'].includes(sub.status) ? 'View' : 'Edit') : 'Start'}
+                        </button>
+                      </td>
+                    </tr>`;
+                  }).join('') : `<tr><td colspan="7"><div class="empty"><h4>No subjects assigned</h4></div></td></tr>`}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function openSubmission(subjectId) {
+      const subject = Store.byId('subjects', subjectId);
+      const mySubs = Store.list('submissions').filter(s => s.teacherId === user.id && s.subjectId === subjectId);
+      const existing = mySubs.sort((a,b)=> (b.updatedAt||b.createdAt).localeCompare(a.updatedAt||a.createdAt))[0];
+      const eligibleStudents = Store.list('students').filter(s => s.department === subject.department && s.semester === subject.semester);
+
+      const submission = existing || {
+        id: Store.newId('sub'),
+        teacherId: user.id,
+        subjectId,
+        department: subject.department,
+        semester: subject.semester,
+        status: 'draft',
+        remarks: '',
+        createdAt: new Date().toISOString(),
+        records: eligibleStudents.map(s => ({ studentId: s.id, attendance: null, internal: null, status: 'eligible', remarks: '' }))
+      };
+
+      // Merge existing records with eligible students (in case new students were added)
+      if (existing) {
+        eligibleStudents.forEach(es => {
+          if (!submission.records.find(r => r.studentId === es.id)) {
+            submission.records.push({ studentId: es.id, attendance: null, internal: null, status: 'eligible', remarks: '' });
+          }
+        });
+      }
+
+      const readonly = ['locked','approved'].includes(submission.status) || isLocked;
+
+      const m = openModal(`
+        <div class="modal-head">
+          <div>
+            <h3>${subject.code} · ${subject.name}</h3>
+            <div style="font-size:.82rem; color:var(--ink-mute); margin-top:4px;">${subject.department} · ${subject.semester} Semester</div>
+          </div>
+          <button class="icon-btn" onclick="closeModal(this)">${ICONS.x}</button>
+        </div>
+        <div class="modal-body">
+          ${submission.status !== 'draft' || existing ? `
+            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px; align-items:center;">
+              <span class="badge ${submission.status}">${submission.status}</span>
+              ${submission.remarks ? `<span style="font-size:.82rem;"><strong>Admin remarks:</strong> ${submission.remarks}</span>` : ''}
+            </div>
+          ` : ''}
+          ${!readonly ? `
+            <div class="btn-group" style="margin-bottom:14px;">
+              <label class="btn sm">
+                ${ICONS.upload} Import Attendance Excel
+                <input type="file" accept=".xlsx,.xls,.csv" onchange="importAttendance(event, '${submission.id}')" style="display:none;">
+              </label>
+              <button class="btn sm" onclick="autoCategorize('${submission.id}')">Auto-categorize by attendance</button>
+              <button class="btn sm" onclick="downloadTemplate('${subject.id}')">${ICONS.download} Excel Template</button>
+            </div>
+          ` : ''}
+          <div class="table-wrap" style="border:1px solid var(--line); border-radius:4px; max-height:420px; overflow:auto;">
+            <table class="data" style="font-size:.82rem;">
+              <thead>
+                <tr>
+                  <th>Roll</th>
+                  <th>Name</th>
+                  <th style="width:90px;">Attend. %</th>
+                  <th style="width:80px;">Internal</th>
+                  <th style="width:120px;">Status</th>
+                  <th>Remarks</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${submission.records.map((r, idx) => {
+                  const st = Store.byId('students', r.studentId);
+                  if (!st) return '';
+                  return `<tr>
+                    <td><strong>${st.roll}</strong></td>
+                    <td>${st.name}</td>
+                    <td><input type="number" min="0" max="100" data-id="${r.studentId}" data-field="attendance" value="${r.attendance ?? ''}" style="width:70px; padding:5px;" ${readonly?'disabled':''}></td>
+                    <td><input type="number" min="0" data-id="${r.studentId}" data-field="internal" value="${r.internal ?? ''}" style="width:65px; padding:5px;" ${readonly?'disabled':''}></td>
+                    <td>
+                      <select data-id="${r.studentId}" data-field="status" style="padding:5px;" ${readonly?'disabled':''}>
+                        <option value="eligible" ${r.status==='eligible'?'selected':''}>Eligible</option>
+                        <option value="nc" ${r.status==='nc'?'selected':''}>NC</option>
+                        <option value="dc" ${r.status==='dc'?'selected':''}>DC</option>
+                      </select>
+                    </td>
+                    <td><input data-id="${r.studentId}" data-field="remarks" value="${r.remarks || ''}" style="width:100%; padding:5px;" placeholder="Optional" ${readonly?'disabled':''}></td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+          <p class="helper-text">Auto-categorize uses attendance &lt; 75% = NC. Manual changes are kept.</p>
+        </div>
+        <div class="modal-foot">
+          <button class="btn" onclick="closeModal(this)">Close</button>
+          ${!readonly ? `
+            <button class="btn" onclick="saveSubmission('${submission.id}', 'draft', ${!!existing})">Save Draft</button>
+            <button class="btn btn-dark" onclick="saveSubmission('${submission.id}', 'submitted', ${!!existing})">${ICONS.check} Submit for Review</button>
+          ` : ''}
+        </div>
+      `, { large: true });
+
+      // Store the in-progress submission on the modal element
+      m.dataset.submissionJson = JSON.stringify(submission);
+    }
+
+    function collectRecords(modal) {
+      const records = {};
+      modal.querySelectorAll('[data-id]').forEach(el => {
+        const id = el.dataset.id;
+        const f = el.dataset.field;
+        if (!records[id]) records[id] = { studentId: id, attendance: null, internal: null, status: 'eligible', remarks: '' };
+        if (f === 'attendance' || f === 'internal') records[id][f] = el.value === '' ? null : +el.value;
+        else records[id][f] = el.value;
+      });
+      return Object.values(records);
+    }
+
+    function saveSubmission(id, status, isExisting) {
+      const m = document.querySelector('.modal-backdrop');
+      const base = JSON.parse(m.dataset.submissionJson);
+      base.records = collectRecords(m);
+      base.status = status;
+      base.updatedAt = new Date().toISOString();
+      if (!isExisting) base.createdAt = new Date().toISOString();
+      Store.upsert('submissions', base);
+      Store.log(status === 'submitted' ? 'submit' : 'edit', `Submission ${base.id} → ${status}`);
+      toast(status === 'submitted' ? 'Submitted for review' : 'Draft saved', 'success');
+      closeModal();
+      renderPage();
+    }
+
+    function autoCategorize(id) {
+      document.querySelectorAll('input[data-field="attendance"]').forEach(input => {
+        const v = +input.value;
+        const studentId = input.dataset.id;
+        if (!isNaN(v) && input.value !== '') {
+          const statusSelect = document.querySelector(`select[data-id="${studentId}"][data-field="status"]`);
+          if (statusSelect) statusSelect.value = v < 75 ? 'nc' : 'eligible';
+        }
+      });
+      toast('Auto-categorized by attendance (< 75% → NC)', 'success');
+    }
+
+    function downloadTemplate(subjectId) {
+      const subject = Store.byId('subjects', subjectId);
+      const students = Store.list('students').filter(s => s.department === subject.department && s.semester === subject.semester);
+      const data = students.map(s => ({
+        'Roll No': s.roll, 'Registration No': s.regNo, 'Name': s.name,
+        'Attendance %': '', 'Internal Marks': '', 'Status (eligible/nc/dc)': 'eligible', 'Remarks': ''
+      }));
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
+      XLSX.writeFile(wb, `${subject.code}_template.xlsx`);
+    }
+
+    function importAttendance(e, submissionId) {
+      const f = e.target.files[0];
+      if (!f) return;
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const wb = XLSX.read(ev.target.result, { type: 'binary' });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet);
+        let updated = 0;
+        rows.forEach(row => {
+          const roll = row['Roll No'] || row.Roll || row.roll;
+          const student = Store.list('students').find(s => s.roll === roll);
+          if (!student) return;
+          const att = document.querySelector(`input[data-id="${student.id}"][data-field="attendance"]`);
+          const int = document.querySelector(`input[data-id="${student.id}"][data-field="internal"]`);
+          const stt = document.querySelector(`select[data-id="${student.id}"][data-field="status"]`);
+          const rem = document.querySelector(`input[data-id="${student.id}"][data-field="remarks"]`);
+          if (att && row['Attendance %'] !== undefined) { att.value = row['Attendance %']; updated++; }
+          if (int && row['Internal Marks'] !== undefined) int.value = row['Internal Marks'];
+          if (stt && row['Status (eligible/nc/dc)']) stt.value = (row['Status (eligible/nc/dc)']+'').toLowerCase();
+          if (rem && row['Remarks']) rem.value = row['Remarks'];
+        });
+        toast(`Imported ${updated} attendance entries`, 'success');
+      };
+      reader.readAsBinaryString(f);
+    }
+
+    renderPage();
+
+    // Auto-open if subject id in URL
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('subject')) {
+      setTimeout(() => openSubmission(urlParams.get('subject')), 200);
+    }
+  </script>
+</body>
+</html>

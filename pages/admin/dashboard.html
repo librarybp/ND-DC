@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard · Examination Cell · Barpeta Polytechnic</title>
+  <link rel="icon" type="image/png" href="../../assets/logo.png">
+  <link rel="stylesheet" href="../../css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <script src="../../js/store.js"></script>
+  <script src="../../js/layout.js"></script>
+  <script>
+    const user = bootPage({
+      role: 'admin',
+      currentPage: 'dashboard.html',
+      crumb: 'Overview',
+      title: 'Dashboard'
+    });
+    if (!user) throw new Error('Not authenticated');
+
+    const db = Store.load();
+    const subs = db.submissions;
+    const allRecords = subs.flatMap(s => s.records);
+    const ncCount = allRecords.filter(r => r.status === 'nc').length;
+    const dcCount = allRecords.filter(r => r.status === 'dc').length;
+    const eligibleCount = allRecords.filter(r => r.status === 'eligible').length;
+
+    const stats = [
+      { label: 'Total Teachers', value: db.teachers.length, accent: 'navy' },
+      { label: 'Total Students', value: db.students.length, accent: 'navy' },
+      { label: 'Total Subjects', value: db.subjects.length, accent: 'navy' },
+      { label: 'Pending Submissions', value: subs.filter(s => ['submitted','review'].includes(s.status)).length, accent: 'warning' },
+      { label: 'Approved Lists', value: subs.filter(s => s.status === 'approved').length, accent: 'success' },
+      { label: 'Rejected Lists', value: subs.filter(s => s.status === 'rejected').length, accent: 'danger' },
+      { label: 'NC Students', value: ncCount, accent: 'danger' },
+      { label: 'DC Students', value: dcCount, accent: 'warning' },
+      { label: 'Eligible Students', value: eligibleCount, accent: 'success' },
+    ];
+
+    document.getElementById('page-content').innerHTML = `
+      <div class="stat-grid">
+        ${stats.map(s => `
+          <div class="stat-card ${s.accent}">
+            <div class="stat-label">${s.label}</div>
+            <div class="stat-value">${s.value}</div>
+            <div class="stat-meta">As of ${fmt.date(new Date())}</div>
+          </div>
+        `).join('')}
+      </div>
+
+      <div class="chart-grid">
+        <div class="chart-box">
+          <h4>Submissions by Status</h4>
+          <canvas id="chart-status"></canvas>
+        </div>
+        <div class="chart-box">
+          <h4>Student Categories</h4>
+          <canvas id="chart-cat"></canvas>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h3>Recent Submissions</h3>
+            <div class="sub">Latest teacher submissions awaiting your action</div>
+          </div>
+          <a href="submissions.html" class="btn">View All</a>
+        </div>
+        <div class="panel-body nopad">
+          <div class="table-wrap">
+            <table class="data">
+              <thead>
+                <tr>
+                  <th>Subject</th>
+                  <th>Teacher</th>
+                  <th>Department</th>
+                  <th>Semester</th>
+                  <th>Records</th>
+                  <th>Submitted</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${subs.slice(0, 8).map(s => {
+                  const sub = Store.byId('subjects', s.subjectId);
+                  const t = Store.byId('teachers', s.teacherId);
+                  return `<tr>
+                    <td><strong>${sub?.code}</strong> · ${sub?.name}</td>
+                    <td>${t?.name || '—'}</td>
+                    <td>${s.department}</td>
+                    <td>${s.semester}</td>
+                    <td>${s.records.length}</td>
+                    <td>${fmt.dateTime(s.updatedAt || s.createdAt)}</td>
+                    <td><span class="badge ${s.status}">${s.status}</span></td>
+                  </tr>`;
+                }).join('') || `<tr><td colspan="7" class="empty">No submissions yet</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Charts
+    const statusCounts = {
+      draft: subs.filter(s => s.status === 'draft').length,
+      submitted: subs.filter(s => s.status === 'submitted').length,
+      approved: subs.filter(s => s.status === 'approved').length,
+      rejected: subs.filter(s => s.status === 'rejected').length,
+      locked: subs.filter(s => s.status === 'locked').length,
+    };
+
+    new Chart(document.getElementById('chart-status'), {
+      type: 'bar',
+      data: {
+        labels: Object.keys(statusCounts).map(k => k[0].toUpperCase() + k.slice(1)),
+        datasets: [{
+          data: Object.values(statusCounts),
+          backgroundColor: ['#c9c3b0', '#1a5b8a', '#2d7a4f', '#b8324a', '#0a1f3d'],
+          borderRadius: 4,
+        }]
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } },
+        responsive: true, maintainAspectRatio: false,
+      }
+    });
+
+    new Chart(document.getElementById('chart-cat'), {
+      type: 'doughnut',
+      data: {
+        labels: ['Eligible', 'NC', 'DC'],
+        datasets: [{
+          data: [eligibleCount, ncCount, dcCount],
+          backgroundColor: ['#2d7a4f', '#b8324a', '#c47a1a'],
+          borderWidth: 0,
+        }]
+      },
+      options: {
+        plugins: { legend: { position: 'bottom' } },
+        responsive: true, maintainAspectRatio: false, cutout: '65%'
+      }
+    });
+  </script>
+</body>
+</html>

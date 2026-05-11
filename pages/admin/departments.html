@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Departments · Examination Cell</title>
+  <link rel="icon" type="image/png" href="../../assets/logo.png">
+  <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body>
+  <script src="../../js/store.js"></script>
+  <script src="../../js/layout.js"></script>
+  <script>
+    const user = bootPage({
+      role: 'admin', currentPage: 'departments.html',
+      crumb: 'Master Data', title: 'Departments & Semesters'
+    });
+    if (!user) throw new Error('Not authenticated');
+
+    function renderPage() {
+      const depts = Store.list('departments');
+      const sems = Store.list('semesters');
+      const teachers = Store.list('teachers');
+      const students = Store.list('students');
+      const subjects = Store.list('subjects');
+
+      document.getElementById('page-content').innerHTML = `
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:24px;">
+          <div class="panel">
+            <div class="panel-head">
+              <div>
+                <h3>Departments</h3>
+                <div class="sub">${depts.length} departments registered</div>
+              </div>
+              <button class="btn btn-dark" onclick="deptForm()">${ICONS.plus} Add</button>
+            </div>
+            <div class="panel-body nopad">
+              <table class="data">
+                <thead><tr><th>Name</th><th>Teachers</th><th>Students</th><th>Subjects</th><th style="text-align:right">Actions</th></tr></thead>
+                <tbody>
+                  ${depts.map(d => `
+                    <tr>
+                      <td><strong>${d.name}</strong></td>
+                      <td>${teachers.filter(t => t.department === d.name).length}</td>
+                      <td>${students.filter(s => s.department === d.name).length}</td>
+                      <td>${subjects.filter(s => s.department === d.name).length}</td>
+                      <td style="text-align:right">
+                        <button class="btn sm" onclick="deptForm('${d.id}')">${ICONS.edit}</button>
+                        <button class="btn sm" onclick="deleteDept('${d.id}')">${ICONS.trash}</button>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <div>
+                <h3>Semesters</h3>
+                <div class="sub">${sems.length} semester levels</div>
+              </div>
+              <button class="btn btn-dark" onclick="semForm()">${ICONS.plus} Add</button>
+            </div>
+            <div class="panel-body nopad">
+              <table class="data">
+                <thead><tr><th>Name</th><th>Students</th><th>Subjects</th><th style="text-align:right">Actions</th></tr></thead>
+                <tbody>
+                  ${sems.map(sem => `
+                    <tr>
+                      <td><strong>${sem.name} Semester</strong></td>
+                      <td>${students.filter(s => s.semester === sem.name).length}</td>
+                      <td>${subjects.filter(s => s.semester === sem.name).length}</td>
+                      <td style="text-align:right">
+                        <button class="btn sm" onclick="semForm('${sem.id}')">${ICONS.edit}</button>
+                        <button class="btn sm" onclick="deleteSem('${sem.id}')">${ICONS.trash}</button>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function deptForm(id) {
+      const d = id ? Store.byId('departments', id) : { id: Store.newId('d'), name: '' };
+      openModal(`
+        <div class="modal-head"><h3>${id?'Edit':'Add'} Department</h3><button class="icon-btn" onclick="closeModal(this)">${ICONS.x}</button></div>
+        <div class="modal-body">
+          <div class="field"><label>Department Name</label><input id="df-name" value="${d.name}"></div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn" onclick="closeModal(this)">Cancel</button>
+          <button class="btn btn-dark" onclick="saveDept('${d.id}', ${!!id})">${id?'Save':'Add'}</button>
+        </div>
+      `);
+    }
+    function saveDept(id, isEdit) {
+      const name = document.getElementById('df-name').value.trim();
+      if (!name) { toast('Name required', 'danger'); return; }
+      Store.upsert('departments', { id, name });
+      Store.log(isEdit?'edit':'create', `${isEdit?'Updated':'Created'} department: ${name}`);
+      toast('Department saved', 'success'); closeModal(); renderPage();
+    }
+    function deleteDept(id) {
+      const d = Store.byId('departments', id);
+      confirmDialog(`Delete department "${d.name}"?`, () => {
+        Store.remove('departments', id);
+        Store.log('delete', `Deleted department: ${d.name}`);
+        toast('Deleted', 'success'); renderPage();
+      });
+    }
+    function semForm(id) {
+      const s = id ? Store.byId('semesters', id) : { id: Store.newId('sem'), name: '' };
+      openModal(`
+        <div class="modal-head"><h3>${id?'Edit':'Add'} Semester</h3><button class="icon-btn" onclick="closeModal(this)">${ICONS.x}</button></div>
+        <div class="modal-body">
+          <div class="field"><label>Semester Name (e.g. 1st, 2nd)</label><input id="sf-name" value="${s.name}"></div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn" onclick="closeModal(this)">Cancel</button>
+          <button class="btn btn-dark" onclick="saveSem('${s.id}', ${!!id})">${id?'Save':'Add'}</button>
+        </div>
+      `);
+    }
+    function saveSem(id, isEdit) {
+      const name = document.getElementById('sf-name').value.trim();
+      if (!name) { toast('Name required', 'danger'); return; }
+      Store.upsert('semesters', { id, name });
+      Store.log(isEdit?'edit':'create', `${isEdit?'Updated':'Created'} semester: ${name}`);
+      toast('Semester saved', 'success'); closeModal(); renderPage();
+    }
+    function deleteSem(id) {
+      const s = Store.byId('semesters', id);
+      confirmDialog(`Delete semester "${s.name}"?`, () => {
+        Store.remove('semesters', id);
+        Store.log('delete', `Deleted semester: ${s.name}`);
+        toast('Deleted', 'success'); renderPage();
+      });
+    }
+
+    renderPage();
+  </script>
+</body>
+</html>

@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Teachers · Examination Cell</title>
+  <link rel="icon" type="image/png" href="../../assets/logo.png">
+  <link rel="stylesheet" href="../../css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <script src="../../js/store.js"></script>
+  <script src="../../js/layout.js"></script>
+  <script>
+    const user = bootPage({
+      role: 'admin',
+      currentPage: 'teachers.html',
+      crumb: 'Master Data',
+      title: 'Teachers'
+    });
+    if (!user) throw new Error('Not authenticated');
+
+    function renderPage() {
+      const teachers = Store.list('teachers');
+      const subjects = Store.list('subjects');
+      const filter = (document.getElementById('search')?.value || '').toLowerCase();
+      const filtered = teachers.filter(t =>
+        !filter || t.name.toLowerCase().includes(filter) || t.email.toLowerCase().includes(filter) || t.department.toLowerCase().includes(filter)
+      );
+
+      document.getElementById('page-content').innerHTML = `
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>Teachers Directory</h3>
+              <div class="sub">${teachers.length} faculty members across ${new Set(teachers.map(t=>t.department)).size} departments</div>
+            </div>
+            <div class="btn-group">
+              <button class="btn" onclick="importDialog()">${ICONS.upload} Import Excel</button>
+              <button class="btn" onclick="exportTeachers()">${ICONS.download} Export</button>
+              <button class="btn btn-dark" onclick="teacherForm()">${ICONS.plus} Add Teacher</button>
+            </div>
+          </div>
+          <div class="filter-bar">
+            <div class="search-input">
+              ${ICONS.search}
+              <input type="text" id="search" placeholder="Search by name, email, or department" oninput="renderPage()">
+            </div>
+          </div>
+          <div class="panel-body nopad">
+            <div class="table-wrap">
+              <table class="data">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Username</th>
+                    <th>Email</th>
+                    <th>Department</th>
+                    <th>Subjects</th>
+                    <th style="text-align:right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${filtered.length ? filtered.map(t => `
+                    <tr>
+                      <td>
+                        <div style="display:flex; align-items:center; gap:10px;">
+                          <div class="user-chip" style="padding:0; background:none;"><div class="avatar">${fmt.initials(t.name)}</div></div>
+                          <strong>${t.name}</strong>
+                        </div>
+                      </td>
+                      <td><code style="font-size:.82rem;">${t.username}</code></td>
+                      <td>${t.email}</td>
+                      <td>${t.department}</td>
+                      <td>${t.subjects.map(code => subjects.find(s=>s.code===code)?.code || code).join(', ') || '—'}</td>
+                      <td style="text-align:right">
+                        <button class="btn sm" onclick="teacherForm('${t.id}')">${ICONS.edit} Edit</button>
+                        <button class="btn sm" onclick="deleteTeacher('${t.id}')">${ICONS.trash}</button>
+                      </td>
+                    </tr>
+                  `).join('') : `<tr><td colspan="6"><div class="empty"><h4>No teachers found</h4><p>Try adjusting your filters or add a new teacher.</p></div></td></tr>`}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function teacherForm(id) {
+      const t = id ? Store.byId('teachers', id) : { id: Store.newId('t'), name: '', email: '', username: '', password: 'teacher123', department: 'Civil Engineering', subjects: [] };
+      const subjects = Store.list('subjects');
+      const m = openModal(`
+        <div class="modal-head">
+          <h3>${id ? 'Edit Teacher' : 'Add Teacher'}</h3>
+          <button class="icon-btn" onclick="closeModal(this)">${ICONS.x}</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-row">
+            <div class="field">
+              <label>Full Name</label>
+              <input id="tf-name" value="${t.name}" placeholder="e.g. Dr. Anjan Sarma">
+            </div>
+            <div class="field">
+              <label>Username</label>
+              <input id="tf-username" value="${t.username}">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="field">
+              <label>Email</label>
+              <input id="tf-email" type="email" value="${t.email}">
+            </div>
+            <div class="field">
+              <label>Password</label>
+              <input id="tf-password" value="${t.password}">
+            </div>
+          </div>
+          <div class="field">
+            <label>Department</label>
+            <select id="tf-dept">
+              ${Store.list('departments').map(d => `<option ${t.department===d.name?'selected':''}>${d.name}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field">
+            <label>Assigned Subjects</label>
+            <div style="display:flex; flex-wrap:wrap; gap:8px; padding:10px; border:1px solid var(--line-strong); border-radius:4px; max-height:180px; overflow-y:auto;">
+              ${subjects.map(s => `
+                <label style="display:inline-flex; align-items:center; gap:6px; font-size:.85rem; padding:4px 10px; background:var(--cream-100); border-radius:99px; cursor:pointer;">
+                  <input type="checkbox" value="${s.code}" ${t.subjects.includes(s.code)?'checked':''} class="tf-sub">
+                  <span>${s.code} · ${s.name}</span>
+                </label>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn" onclick="closeModal(this)">Cancel</button>
+          <button class="btn btn-dark" onclick="saveTeacher('${t.id}', ${!!id})">${id ? 'Save Changes' : 'Add Teacher'}</button>
+        </div>
+      `, { large: true });
+    }
+
+    function saveTeacher(id, isEdit) {
+      const t = {
+        id,
+        name: document.getElementById('tf-name').value.trim(),
+        username: document.getElementById('tf-username').value.trim(),
+        email: document.getElementById('tf-email').value.trim(),
+        password: document.getElementById('tf-password').value,
+        department: document.getElementById('tf-dept').value,
+        subjects: [...document.querySelectorAll('.tf-sub:checked')].map(c => c.value),
+      };
+      if (!t.name || !t.username || !t.email) { toast('Name, username, and email are required.', 'danger'); return; }
+      Store.upsert('teachers', t);
+      Store.log(isEdit ? 'edit' : 'create', `${isEdit?'Updated':'Created'} teacher: ${t.name}`);
+      toast(`Teacher ${isEdit ? 'updated' : 'added'} successfully`, 'success');
+      closeModal();
+      renderPage();
+    }
+
+    function deleteTeacher(id) {
+      const t = Store.byId('teachers', id);
+      confirmDialog(`Delete teacher "${t.name}"? This cannot be undone.`, () => {
+        Store.remove('teachers', id);
+        Store.log('delete', `Deleted teacher: ${t.name}`);
+        toast('Teacher deleted', 'success');
+        renderPage();
+      });
+    }
+
+    function exportTeachers() {
+      const teachers = Store.list('teachers');
+      const data = teachers.map(t => ({
+        Name: t.name, Username: t.username, Email: t.email,
+        Department: t.department, Subjects: t.subjects.join(', ')
+      }));
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Teachers');
+      XLSX.writeFile(wb, 'bpoly_teachers.xlsx');
+      toast('Teachers exported', 'success');
+    }
+
+    function importDialog() {
+      const m = openModal(`
+        <div class="modal-head"><h3>Import Teachers from Excel</h3><button class="icon-btn" onclick="closeModal(this)">${ICONS.x}</button></div>
+        <div class="modal-body">
+          <p style="margin-bottom:14px;">Upload a .xlsx file with columns: <code>Name, Username, Email, Password, Department, Subjects</code> (comma-separated codes).</p>
+          <input type="file" id="import-file" accept=".xlsx,.xls,.csv">
+          <p class="helper-text">First row should be the header row.</p>
+        </div>
+        <div class="modal-foot">
+          <button class="btn" onclick="closeModal(this)">Cancel</button>
+          <button class="btn btn-dark" onclick="doImport()">Import</button>
+        </div>
+      `);
+    }
+
+    function doImport() {
+      const f = document.getElementById('import-file').files[0];
+      if (!f) { toast('Please select a file', 'danger'); return; }
+      const reader = new FileReader();
+      reader.onload = e => {
+        const wb = XLSX.read(e.target.result, { type: 'binary' });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet);
+        let added = 0;
+        rows.forEach(r => {
+          const t = {
+            id: Store.newId('t'),
+            name: r.Name || r.name || '',
+            username: r.Username || r.username || '',
+            email: r.Email || r.email || '',
+            password: r.Password || r.password || 'teacher123',
+            department: r.Department || r.department || 'Civil Engineering',
+            subjects: (r.Subjects || r.subjects || '').toString().split(',').map(x=>x.trim()).filter(Boolean),
+          };
+          if (t.name && t.username) { Store.upsert('teachers', t); added++; }
+        });
+        Store.log('import', `Imported ${added} teachers`);
+        toast(`${added} teachers imported`, 'success');
+        closeModal();
+        renderPage();
+      };
+      reader.readAsBinaryString(f);
+    }
+
+    renderPage();
+  </script>
+</body>
+</html>

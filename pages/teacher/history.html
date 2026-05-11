@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Submission History · Teacher · Barpeta Polytechnic</title>
+  <link rel="icon" type="image/png" href="../../assets/logo.png">
+  <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body>
+  <script src="../../js/store.js"></script>
+  <script src="../../js/layout.js"></script>
+  <script>
+    const user = bootPage({
+      role: 'teacher', currentPage: 'history.html',
+      crumb: 'History', title: 'Submission History'
+    });
+    if (!user) throw new Error('Not authenticated');
+
+    let statusFilter = 'all';
+    let searchTerm = '';
+
+    function renderPage() {
+      const allSubs = Store.list('submissions').filter(s => s.teacherId === user.id);
+      const subjects = Object.fromEntries(Store.list('subjects').map(s => [s.id, s]));
+
+      let subs = [...allSubs].sort((a, b) =>
+        new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt)
+      );
+
+      if (statusFilter !== 'all') {
+        subs = subs.filter(s => s.status === statusFilter);
+      }
+      if (searchTerm) {
+        const q = searchTerm.toLowerCase();
+        subs = subs.filter(s => {
+          const sub = subjects[s.subjectId];
+          return (sub?.code?.toLowerCase().includes(q)) ||
+                 (sub?.name?.toLowerCase().includes(q)) ||
+                 (s.department?.toLowerCase().includes(q));
+        });
+      }
+
+      const counts = {
+        all: allSubs.length,
+        draft: allSubs.filter(s => s.status === 'draft').length,
+        submitted: allSubs.filter(s => s.status === 'submitted').length,
+        approved: allSubs.filter(s => s.status === 'approved').length,
+        rejected: allSubs.filter(s => s.status === 'rejected').length,
+        locked: allSubs.filter(s => s.status === 'locked').length,
+      };
+
+      document.getElementById('page-content').innerHTML = `
+        <div class="stat-grid" style="grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));">
+          ${[
+            { label: 'Total', value: counts.all, accent: 'navy' },
+            { label: 'Drafts', value: counts.draft, accent: 'navy' },
+            { label: 'Awaiting Review', value: counts.submitted, accent: 'warning' },
+            { label: 'Approved', value: counts.approved, accent: 'success' },
+            { label: 'Rejected', value: counts.rejected, accent: 'danger' },
+            { label: 'Locked', value: counts.locked, accent: 'navy' },
+          ].map(s => `
+            <div class="stat-card ${s.accent}">
+              <div class="stat-label">${s.label}</div>
+              <div class="stat-value">${s.value}</div>
+            </div>
+          `).join('')}
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="title">My Submissions</div>
+              <div class="sub">${subs.length} ${subs.length === 1 ? 'record' : 'records'} shown</div>
+            </div>
+            <div class="actions" style="flex-wrap:wrap;">
+              <select id="f-status" class="input sm" onchange="statusFilter=this.value; renderPage();">
+                <option value="all" ${statusFilter==='all'?'selected':''}>All Status</option>
+                <option value="draft" ${statusFilter==='draft'?'selected':''}>Draft</option>
+                <option value="submitted" ${statusFilter==='submitted'?'selected':''}>Submitted</option>
+                <option value="review" ${statusFilter==='review'?'selected':''}>Under Review</option>
+                <option value="approved" ${statusFilter==='approved'?'selected':''}>Approved</option>
+                <option value="rejected" ${statusFilter==='rejected'?'selected':''}>Rejected</option>
+                <option value="locked" ${statusFilter==='locked'?'selected':''}>Locked</option>
+              </select>
+              <input id="f-search" class="input sm" placeholder="Search subject…" value="${searchTerm}"
+                     oninput="searchTerm=this.value; renderPage(); document.getElementById('f-search').focus();">
+            </div>
+          </div>
+          <div class="panel-body p0">
+            <div class="table-wrap">
+              <table class="data">
+                <thead>
+                  <tr>
+                    <th>Subject</th>
+                    <th>Dept · Sem</th>
+                    <th>Students</th>
+                    <th>NC</th>
+                    <th>DC</th>
+                    <th>Eligible</th>
+                    <th>Status</th>
+                    <th>Last Update</th>
+                    <th class="ta-r">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${subs.length ? subs.map(s => {
+                    const sub = subjects[s.subjectId];
+                    const nc = s.records.filter(r => r.status === 'nc').length;
+                    const dc = s.records.filter(r => r.status === 'dc').length;
+                    const el = s.records.filter(r => r.status === 'eligible').length;
+                    return `<tr>
+                      <td>
+                        <div style="font-weight:600;">${sub?.code || '—'}</div>
+                        <div style="font-size:.78rem; color:var(--ink-mute);">${sub?.name || ''}</div>
+                      </td>
+                      <td>${s.department}<br><small style="color:var(--ink-mute);">${s.semester} Sem</small></td>
+                      <td><strong>${s.records.length}</strong></td>
+                      <td><span class="badge nc">${nc}</span></td>
+                      <td><span class="badge dc">${dc}</span></td>
+                      <td><span class="badge eligible">${el}</span></td>
+                      <td><span class="badge ${s.status}">${s.status}</span></td>
+                      <td>
+                        <div style="font-size:.82rem;">${fmt.date(s.updatedAt || s.createdAt)}</div>
+                        <div style="font-size:.72rem; color:var(--ink-mute);">${fmt.time(s.updatedAt || s.createdAt)}</div>
+                      </td>
+                      <td class="ta-r">
+                        <div style="display:inline-flex; gap:6px;">
+                          <button class="btn sm" onclick="viewSub('${s.id}')">View</button>
+                          <button class="btn sm btn-dark" onclick="printSub('${s.id}')">${ICONS.print} PDF</button>
+                        </div>
+                      </td>
+                    </tr>`;
+                  }).join('') : `<tr><td colspan="9"><div class="empty"><h4>No submissions yet</h4><p>${allSubs.length ? 'Try a different filter.' : 'Go to Submissions to create your first list.'}</p></div></td></tr>`}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function viewSub(id) {
+      const s = Store.byId('submissions', id);
+      const sub = Store.byId('subjects', s.subjectId);
+      const studentMap = Object.fromEntries(Store.list('students').map(x => [x.id, x]));
+
+      openModal(`
+        <div class="modal-head">
+          <div>
+            <h3>${sub.code} · ${sub.name}</h3>
+            <div style="font-size:.82rem; color:var(--ink-mute); margin-top:4px;">${s.department} · ${s.semester} Sem</div>
+          </div>
+          <button class="icon-btn" onclick="closeModal(this)">${ICONS.x}</button>
+        </div>
+        <div class="modal-body">
+          <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px; align-items:center;">
+            <span class="badge ${s.status}">${s.status}</span>
+            <span style="font-size:.82rem; color:var(--ink-mute);">Created: ${fmt.dateTime(s.createdAt)}</span>
+            ${s.updatedAt && s.updatedAt !== s.createdAt ? `<span style="font-size:.82rem; color:var(--ink-mute);">· Updated: ${fmt.dateTime(s.updatedAt)}</span>` : ''}
+          </div>
+          ${s.remarks ? `
+            <div class="panel" style="background:var(--cream-100); border:1px solid var(--gold-200); margin-bottom:16px;">
+              <div class="panel-body" style="padding:12px 16px;">
+                <div class="section-title" style="margin-bottom:6px;">Admin Remarks</div>
+                <p style="margin:0; font-size:.88rem;">${s.remarks}</p>
+              </div>
+            </div>
+          ` : ''}
+          <div class="table-wrap" style="border:1px solid var(--line); border-radius:4px; max-height:380px; overflow-y:auto;">
+            <table class="data" style="font-size:.82rem;">
+              <thead><tr><th>Roll</th><th>Name</th><th>Attendance</th><th>Internal</th><th>Status</th><th>Remarks</th></tr></thead>
+              <tbody>
+                ${s.records.map(r => {
+                  const st = studentMap[r.studentId];
+                  return `<tr>
+                    <td><strong>${st?.roll || '—'}</strong></td>
+                    <td>${st?.name || '—'}</td>
+                    <td>${fmt.attendance(r.attendance)}</td>
+                    <td>${r.internal ?? '—'}</td>
+                    <td><span class="badge ${r.status}">${r.status}</span></td>
+                    <td>${r.remarks || '—'}</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn" onclick="closeModal(this)">Close</button>
+          <button class="btn btn-dark" onclick="printSub('${s.id}')">${ICONS.print} Generate PDF</button>
+        </div>
+      `, { large: true });
+    }
+
+    function printSub(id) {
+      const s = Store.byId('submissions', id);
+      const sub = Store.byId('subjects', s.subjectId);
+      const studentMap = Object.fromEntries(Store.list('students').map(x => [x.id, x]));
+      // Only NC and DC students for the official format
+      const ncDcRecords = s.records.filter(r => r.status === 'nc' || r.status === 'dc');
+
+      const logoUrl = new URL('../../assets/logo.png', window.location.href).href;
+      const today = new Date();
+      const dateStr = today.toLocaleDateString('en-GB', { day:'2-digit', month:'2-digit', year:'numeric' });
+      const refNo = `BPOLY/EXAM/${today.getFullYear()}/${String(s.id).slice(-4).toUpperCase()}`;
+
+      const rows = ncDcRecords.length ? ncDcRecords.map((r, i) => {
+        const st = studentMap[r.studentId];
+        return `<tr>
+          <td class="c">${i+1}</td>
+          <td>${st?.name || '—'}</td>
+          <td class="c">${st?.roll || '—'}</td>
+          <td>${sub.code} - ${sub.name}</td>
+          <td class="c">${r.status === 'nc' ? '✓' : ''}</td>
+          <td class="c">${r.status === 'dc' ? '✓' : ''}</td>
+        </tr>`;
+      }).join('') : `<tr><td colspan="6" style="text-align:center; padding:24px; color:#666;">No NC or DC students in this submission.</td></tr>`;
+
+      // Pad to at least 4 empty rows like the template
+      const minRows = Math.max(0, 4 - ncDcRecords.length);
+      const padRows = Array.from({length: minRows}).map(() =>
+        `<tr><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>`
+      ).join('');
+
+      const html = `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>List of NC and DC - ${sub.code}</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Times New Roman', Times, serif; color: #000; margin: 0; padding: 0; font-size: 12pt; }
+  .report-page { max-width: 180mm; margin: 0 auto; padding: 8mm 0; }
+  .head { text-align: center; margin-bottom: 18px; }
+  .head img { width: 64px; height: auto; margin-bottom: 8px; }
+  .head h1 { font-size: 14pt; margin: 0; font-weight: bold; }
+  .head h2 { font-size: 13pt; margin: 2px 0; font-weight: bold; }
+  .head p { font-size: 11pt; margin: 2px 0; }
+  .meta { display: flex; justify-content: space-between; margin: 20px 0 4px; font-size: 11pt; }
+  .title { text-align: center; font-weight: bold; font-size: 13pt; margin: 14px 0 12px; }
+  table.report { width: 100%; border-collapse: collapse; font-size: 11pt; }
+  table.report th, table.report td { border: 1px solid #000; padding: 6px 8px; vertical-align: middle; }
+  table.report th { font-weight: bold; text-align: left; }
+  table.report td.c, table.report th.c { text-align: center; }
+  table.report tbody tr { min-height: 28px; }
+  .sig { margin-top: 80px; text-align: right; font-size: 11pt; line-height: 1.5; }
+  .sig div { margin: 0; }
+  @media print { .no-print { display: none; } body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
+  .print-bar { position: fixed; top: 16px; right: 16px; background: #0a1f3d; color: #fff; padding: 10px 16px; border-radius: 4px; cursor: pointer; border: none; font-family: Inter, sans-serif; font-size: 13px; }
+</style></head>
+<body>
+  <button class="print-bar no-print" onclick="window.print()">🖨 Print / Save as PDF</button>
+  <div class="report-page">
+    <div class="head">
+      <img src="${logoUrl}" alt="Logo">
+      <h1>GOVT OF ASSAM</h1>
+      <h2>OFFICE OF THE PRINCIPAL: BARPETA POLYTECHNIC</h2>
+      <p><strong>GANAKKUCHI, BARPETA, ASSAM, PIN: 781314</strong></p>
+      <p><strong>WEBSITE:</strong> bpoly.ac.in &nbsp; <strong>EMAIL:</strong> barpetapolytechnic@gmail.com</p>
+    </div>
+    <div class="meta">
+      <span>Ref. No. <strong>${refNo}</strong></span>
+      <span>Date: <strong>${dateStr}</strong></span>
+    </div>
+    <div class="title">List of NC and DC</div>
+    <table class="report">
+      <thead>
+        <tr>
+          <th class="c" style="width:10%;">SL.<br>No</th>
+          <th style="width:28%;">Name of Students</th>
+          <th class="c" style="width:14%;">Roll<br>No</th>
+          <th style="width:26%;">Subject</th>
+          <th class="c" style="width:11%;">NC</th>
+          <th class="c" style="width:11%;">DC</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows}
+        ${padRows}
+      </tbody>
+    </table>
+    <div class="sig">
+      <div>Signature</div>
+      <div><strong>Exam Supdt.</strong></div>
+      <div>Examination Cell</div>
+      <div>Barpeta Polytechnic</div>
+    </div>
+  </div>
+  <script>window.addEventListener('load', () => setTimeout(() => window.print(), 500));<\/script>
+</body><\/html>`;
+
+      const w = window.open('', '_blank');
+      w.document.write(html);
+      w.document.close();
+    }
+
+    renderPage();
+  </script>
+</body>
+</html>

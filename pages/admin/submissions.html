@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Submissions · Examination Cell</title>
+  <link rel="icon" type="image/png" href="../../assets/logo.png">
+  <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body>
+  <script src="../../js/store.js"></script>
+  <script src="../../js/layout.js"></script>
+  <script>
+    const user = bootPage({
+      role: 'admin', currentPage: 'submissions.html',
+      crumb: 'Examinations', title: 'Submissions'
+    });
+    if (!user) throw new Error('Not authenticated');
+
+    let filter = { q: '', dept: '', sem: '', status: '' };
+
+    function renderPage() {
+      const subs = Store.list('submissions');
+      const teachers = Store.list('teachers');
+      const subjects = Store.list('subjects');
+      const filtered = subs.filter(s => {
+        const sub = subjects.find(x => x.id === s.subjectId);
+        const t = teachers.find(x => x.id === s.teacherId);
+        return (!filter.q || sub?.code.toLowerCase().includes(filter.q.toLowerCase()) || sub?.name.toLowerCase().includes(filter.q.toLowerCase()) || t?.name.toLowerCase().includes(filter.q.toLowerCase())) &&
+               (!filter.dept || s.department === filter.dept) &&
+               (!filter.sem || s.semester === filter.sem) &&
+               (!filter.status || s.status === filter.status);
+      });
+
+      document.getElementById('page-content').innerHTML = `
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>All Submissions</h3>
+              <div class="sub">${subs.length} total · ${subs.filter(s=>s.status==='submitted').length} awaiting review</div>
+            </div>
+          </div>
+          <div class="filter-bar">
+            <div class="search-input">
+              ${ICONS.search}
+              <input type="text" value="${filter.q}" placeholder="Search by subject or teacher" oninput="filter.q=this.value; renderPage()">
+            </div>
+            <div class="field"><label>Department</label>
+              <select onchange="filter.dept=this.value; renderPage()">
+                <option value="">All</option>
+                ${Store.list('departments').map(d => `<option ${filter.dept===d.name?'selected':''}>${d.name}</option>`).join('')}
+              </select>
+            </div>
+            <div class="field"><label>Semester</label>
+              <select onchange="filter.sem=this.value; renderPage()">
+                <option value="">All</option>
+                ${Store.list('semesters').map(s => `<option value="${s.name}" ${filter.sem===s.name?'selected':''}>${s.name}</option>`).join('')}
+              </select>
+            </div>
+            <div class="field"><label>Status</label>
+              <select onchange="filter.status=this.value; renderPage()">
+                <option value="">All</option>
+                ${['draft','submitted','approved','rejected','locked'].map(st => `<option value="${st}" ${filter.status===st?'selected':''}>${st[0].toUpperCase()+st.slice(1)}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div class="panel-body nopad">
+            <div class="table-wrap">
+              <table class="data">
+                <thead>
+                  <tr>
+                    <th>Subject</th>
+                    <th>Teacher</th>
+                    <th>Department / Sem</th>
+                    <th>Records</th>
+                    <th>NC / DC / Eligible</th>
+                    <th>Submitted</th>
+                    <th>Status</th>
+                    <th style="text-align:right">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${filtered.length ? filtered.map(s => {
+                    const sub = subjects.find(x => x.id === s.subjectId);
+                    const t = teachers.find(x => x.id === s.teacherId);
+                    const nc = s.records.filter(r => r.status === 'nc').length;
+                    const dc = s.records.filter(r => r.status === 'dc').length;
+                    const el = s.records.filter(r => r.status === 'eligible').length;
+                    return `<tr>
+                      <td><strong>${sub?.code}</strong><br><span style="font-size:.8rem; color:var(--ink-mute);">${sub?.name}</span></td>
+                      <td>${t?.name || '—'}</td>
+                      <td>${s.department}<br><span style="font-size:.8rem; color:var(--ink-mute);">${s.semester} Sem</span></td>
+                      <td>${s.records.length}</td>
+                      <td><span class="badge nc">${nc} NC</span> <span class="badge dc">${dc} DC</span> <span class="badge eligible">${el} OK</span></td>
+                      <td>${fmt.dateTime(s.updatedAt || s.createdAt)}</td>
+                      <td><span class="badge ${s.status}">${s.status}</span></td>
+                      <td style="text-align:right">
+                        <button class="btn sm btn-dark" onclick="reviewSub('${s.id}')">Review</button>
+                      </td>
+                    </tr>`;
+                  }).join('') : `<tr><td colspan="8"><div class="empty"><h4>No submissions found</h4><p>Try changing your filters.</p></div></td></tr>`}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function reviewSub(id) {
+      const s = Store.byId('submissions', id);
+      const sub = Store.byId('subjects', s.subjectId);
+      const t = Store.byId('teachers', s.teacherId);
+      const studentMap = Object.fromEntries(Store.list('students').map(x => [x.id, x]));
+
+      const m = openModal(`
+        <div class="modal-head">
+          <div>
+            <h3>${sub.code} · ${sub.name}</h3>
+            <div style="font-size:.82rem; color:var(--ink-mute); margin-top:4px;">${s.department} · ${s.semester} Sem · Submitted by ${t?.name}</div>
+          </div>
+          <button class="icon-btn" onclick="closeModal(this)">${ICONS.x}</button>
+        </div>
+        <div class="modal-body">
+          <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px;">
+            <span class="badge ${s.status}">${s.status}</span>
+            <span style="font-size:.82rem; color:var(--ink-mute);">Last updated: ${fmt.dateTime(s.updatedAt || s.createdAt)}</span>
+          </div>
+          <div class="table-wrap" style="border:1px solid var(--line); border-radius:4px; margin-bottom:16px; max-height:340px; overflow-y:auto;">
+            <table class="data" style="font-size:.82rem;">
+              <thead><tr><th>Roll</th><th>Name</th><th>Attendance</th><th>Internal</th><th>Status</th><th>Remarks</th></tr></thead>
+              <tbody>
+                ${s.records.map(r => {
+                  const st = studentMap[r.studentId];
+                  return `<tr>
+                    <td><strong>${st?.roll}</strong></td>
+                    <td>${st?.name}</td>
+                    <td>${fmt.attendance(r.attendance)}</td>
+                    <td>${r.internal ?? '—'}</td>
+                    <td><span class="badge ${r.status}">${r.status}</span></td>
+                    <td>${r.remarks || '—'}</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+          <div class="field">
+            <label>Admin Remarks (sent to teacher)</label>
+            <textarea id="admin-remarks" rows="3" placeholder="Optional remarks">${s.remarks || ''}</textarea>
+          </div>
+        </div>
+        <div class="modal-foot" style="flex-wrap:wrap;">
+          <button class="btn" onclick="closeModal(this)">Close</button>
+          ${s.status !== 'locked' ? `
+            <button class="btn btn-danger" onclick="updateStatus('${s.id}','rejected')">${ICONS.x} Reject</button>
+            <button class="btn btn-success" onclick="updateStatus('${s.id}','approved')">${ICONS.check} Approve</button>
+            ${s.status === 'approved' ? `<button class="btn btn-dark" onclick="updateStatus('${s.id}','locked')">${ICONS.lock} Lock Final</button>` : ''}
+          ` : `<button class="btn" onclick="updateStatus('${s.id}','approved')">${ICONS.unlock} Reopen</button>`}
+        </div>
+      `, { large: true });
+    }
+
+    function updateStatus(id, status) {
+      const remarks = document.getElementById('admin-remarks')?.value || '';
+      const s = Store.byId('submissions', id);
+      s.status = status;
+      s.remarks = remarks;
+      s.updatedAt = new Date().toISOString();
+      Store.upsert('submissions', s);
+      Store.log(status, `Submission ${id} → ${status}`);
+      toast(`Submission ${status}`, 'success');
+      closeModal();
+      renderPage();
+    }
+
+    renderPage();
+  </script>
+</body>
+</html>

@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reports · Examination Cell</title>
+  <link rel="icon" type="image/png" href="../../assets/logo.png">
+  <link rel="stylesheet" href="../../css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <script src="../../js/store.js"></script>
+  <script src="../../js/layout.js"></script>
+  <script>
+    const user = bootPage({
+      role: 'admin', currentPage: 'reports.html',
+      crumb: 'Examinations', title: 'Reports'
+    });
+    if (!user) throw new Error('Not authenticated');
+
+    let filter = { dept: '', sem: '', category: 'all', onlyApproved: true };
+
+    function getReportRows() {
+      const subs = Store.list('submissions').filter(s =>
+        (!filter.onlyApproved || ['approved','locked'].includes(s.status)) &&
+        (!filter.dept || s.department === filter.dept) &&
+        (!filter.sem || s.semester === filter.sem)
+      );
+      const studentMap = Object.fromEntries(Store.list('students').map(s => [s.id, s]));
+      const subjectMap = Object.fromEntries(Store.list('subjects').map(s => [s.id, s]));
+      const rows = [];
+      subs.forEach(s => {
+        const sub = subjectMap[s.subjectId];
+        s.records.forEach(r => {
+          if (filter.category !== 'all' && r.status !== filter.category) return;
+          const st = studentMap[r.studentId];
+          if (!st) return;
+          rows.push({
+            roll: st.roll,
+            regNo: st.regNo,
+            name: st.name,
+            department: s.department,
+            semester: s.semester,
+            subjectCode: sub?.code,
+            subjectName: sub?.name,
+            attendance: r.attendance,
+            status: r.status,
+            remarks: r.remarks,
+          });
+        });
+      });
+      return rows;
+    }
+
+    function renderPage() {
+      const rows = getReportRows();
+      document.getElementById('page-content').innerHTML = `
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>Generate Reports</h3>
+              <div class="sub">Filter and produce print-ready or Excel exports</div>
+            </div>
+          </div>
+          <div class="filter-bar">
+            <div class="field"><label>Category</label>
+              <select onchange="filter.category=this.value; renderPage()">
+                <option value="all" ${filter.category==='all'?'selected':''}>All Categories</option>
+                <option value="nc" ${filter.category==='nc'?'selected':''}>Not Clear (NC)</option>
+                <option value="dc" ${filter.category==='dc'?'selected':''}>Detained (DC)</option>
+                <option value="eligible" ${filter.category==='eligible'?'selected':''}>Eligible</option>
+              </select>
+            </div>
+            <div class="field"><label>Department</label>
+              <select onchange="filter.dept=this.value; renderPage()">
+                <option value="">All</option>
+                ${Store.list('departments').map(d => `<option ${filter.dept===d.name?'selected':''}>${d.name}</option>`).join('')}
+              </select>
+            </div>
+            <div class="field"><label>Semester</label>
+              <select onchange="filter.sem=this.value; renderPage()">
+                <option value="">All</option>
+                ${Store.list('semesters').map(s => `<option value="${s.name}" ${filter.sem===s.name?'selected':''}>${s.name}</option>`).join('')}
+              </select>
+            </div>
+            <div class="field" style="display:flex; align-items:center;">
+              <label style="margin-bottom:0; display:flex; align-items:center; gap:6px; cursor:pointer;">
+                <input type="checkbox" ${filter.onlyApproved?'checked':''} onchange="filter.onlyApproved=this.checked; renderPage()">
+                <span style="text-transform:none; letter-spacing:0; font-size:.82rem; color:var(--ink);">Only approved/locked</span>
+              </label>
+            </div>
+            <div style="flex:1;"></div>
+            <button class="btn" onclick="exportExcel()">${ICONS.download} Excel</button>
+            <button class="btn btn-dark" onclick="generatePDF()">${ICONS.print} Print / Save PDF</button>
+          </div>
+          <div class="panel-body nopad">
+            <div class="table-wrap">
+              <table class="data">
+                <thead>
+                  <tr>
+                    <th>Roll No</th>
+                    <th>Name</th>
+                    <th>Department</th>
+                    <th>Sem</th>
+                    <th>Subject</th>
+                    <th>Attendance</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${rows.length ? rows.map(r => `
+                    <tr>
+                      <td><strong>${r.roll}</strong></td>
+                      <td>${r.name}</td>
+                      <td>${r.department}</td>
+                      <td>${r.semester}</td>
+                      <td><strong>${r.subjectCode}</strong> · ${r.subjectName}</td>
+                      <td>${fmt.attendance(r.attendance)}</td>
+                      <td><span class="badge ${r.status}">${r.status}</span></td>
+                    </tr>
+                  `).join('') : `<tr><td colspan="7"><div class="empty"><h4>No records match the filter</h4><p>Adjust filters or wait for submissions to be approved.</p></div></td></tr>`}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>Quick Statistical Summary</h3>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="stat-grid">
+              <div class="stat-card danger">
+                <div class="stat-label">NC (Not Clear)</div>
+                <div class="stat-value">${rows.filter(r=>r.status==='nc').length}</div>
+              </div>
+              <div class="stat-card warning">
+                <div class="stat-label">DC (Detained)</div>
+                <div class="stat-value">${rows.filter(r=>r.status==='dc').length}</div>
+              </div>
+              <div class="stat-card success">
+                <div class="stat-label">Eligible</div>
+                <div class="stat-value">${rows.filter(r=>r.status==='eligible').length}</div>
+              </div>
+              <div class="stat-card navy">
+                <div class="stat-label">Total Records</div>
+                <div class="stat-value">${rows.length}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function exportExcel() {
+      const rows = getReportRows();
+      if (!rows.length) { toast('No records to export', 'danger'); return; }
+      const data = rows.map((r, i) => ({
+        'SL No': i+1,
+        'Roll No': r.roll,
+        'Registration No': r.regNo,
+        'Name of Student': r.name,
+        'Department': r.department,
+        'Semester': r.semester,
+        'Subject Code': r.subjectCode,
+        'Subject Name': r.subjectName,
+        'Attendance %': r.attendance,
+        'NC': r.status === 'nc' ? '✓' : '',
+        'DC': r.status === 'dc' ? '✓' : '',
+        'Eligible': r.status === 'eligible' ? '✓' : '',
+        'Remarks': r.remarks || ''
+      }));
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'NC-DC Report');
+      XLSX.writeFile(wb, `bpoly_report_${new Date().toISOString().slice(0,10)}.xlsx`);
+      toast('Report exported', 'success');
+    }
+
+    // Generates the official NC/DC list in the format from the supplied PDF
+    function generatePDF() {
+      const rows = getReportRows();
+      if (!rows.length) { toast('No records to print', 'danger'); return; }
+
+      // Filter rows for NC and DC categorization (eligible students typically don't appear on this specific format,
+      // but we include them when category=eligible/all and show their status appropriately)
+      const win = window.open('', '_blank');
+      const ncDcOnly = rows.filter(r => r.status === 'nc' || r.status === 'dc');
+      const printRows = filter.category === 'eligible' ? rows : (filter.category === 'all' ? ncDcOnly : rows);
+
+      // Try to get logo as base64 if available
+      const logoUrl = window.location.origin + window.location.pathname.replace(/pages\/admin\/.*/, 'assets/logo.png');
+
+      win.document.write(`
+        <!DOCTYPE html>
+        <html><head>
+        <title>List of NC and DC · Barpeta Polytechnic</title>
+        <link rel="stylesheet" href="${window.location.origin + window.location.pathname.replace(/pages\/admin\/.*/, 'css/style.css')}">
+        <style>
+          body { background: #e8e7e2; padding: 0; margin: 0; }
+          .toolbar { background: #0a1f3d; color: #fbf9f3; padding: 12px 24px; display:flex; justify-content:space-between; align-items:center; position:sticky; top:0; }
+          .toolbar button { background: #c9a14a; color: #0a1f3d; padding: 8px 18px; border:none; border-radius:4px; font-weight:600; cursor:pointer; font-family: 'Inter', sans-serif; }
+          .toolbar button:hover { background:#d9b566; }
+          @media print { .toolbar { display:none; } body { background:white; } }
+        </style>
+        </head><body>
+        <div class="toolbar no-print">
+          <strong style="font-family: 'Cormorant Garamond', serif; font-size: 1.1rem;">Print Preview · List of NC and DC</strong>
+          <button onclick="window.print()">🖨 Print / Save as PDF</button>
+        </div>
+        <div class="report-page">
+          <div class="report-header">
+            <img src="${logoUrl}" alt="logo" onerror="this.style.display='none'">
+            <div class="gov">GOVT OF ASSAM</div>
+            <div class="office">OFFICE OF THE PRINCIPAL: BARPETA POLYTECHNIC</div>
+            <div class="address">GANAKKUCHI, BARPETA, ASSAM, PIN: 781314</div>
+            <div class="contact">WEBSITE: bpoly.ac.in EMAIL: - barpetapolytechnic@gmail.com</div>
+          </div>
+          <div class="report-meta">
+            <div>Ref. No. ${'_'.repeat(20)}</div>
+            <div>Date: ${new Date().toLocaleDateString('en-IN', { day:'2-digit', month:'long', year:'numeric'})}</div>
+          </div>
+          <h3 class="report-title">List of NC and DC</h3>
+          ${filter.dept || filter.sem ? `<div style="text-align:center; font-size:11pt; margin-bottom:10px;"><em>${filter.dept || 'All Departments'} ${filter.sem ? '· ' + filter.sem + ' Semester' : ''}</em></div>` : ''}
+          <table class="report-table">
+            <thead>
+              <tr>
+                <th style="width:8%;">SL. No</th>
+                <th style="width:30%;">Name of Students</th>
+                <th style="width:15%;">Roll No</th>
+                <th style="width:25%;">Subject</th>
+                <th style="width:11%;">NC</th>
+                <th style="width:11%;">DC</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${printRows.map((r, i) => `
+                <tr>
+                  <td class="center">${i+1}</td>
+                  <td>${r.name}</td>
+                  <td class="center">${r.roll}</td>
+                  <td>${r.subjectCode} · ${r.subjectName}</td>
+                  <td class="center">${r.status === 'nc' ? '✓' : ''}</td>
+                  <td class="center">${r.status === 'dc' ? '✓' : ''}</td>
+                </tr>
+              `).join('')}
+              ${printRows.length < 4 ? Array(4 - printRows.length).fill('').map(() => `
+                <tr><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td></tr>
+              `).join('') : ''}
+            </tbody>
+          </table>
+          <div class="report-signature">
+            <div>Signature</div>
+            <div>Exam Supdt.</div>
+            <div>Examination Cell</div>
+            <div>Barpeta Polytechnic</div>
+          </div>
+        </div>
+        </body></html>
+      `);
+      win.document.close();
+      Store.log('print', `Printed NC/DC report (${printRows.length} records)`);
+    }
+
+    renderPage();
+  </script>
+</body>
+</html>

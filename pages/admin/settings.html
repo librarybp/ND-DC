@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings · Examination Cell</title>
+  <link rel="icon" type="image/png" href="../../assets/logo.png">
+  <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body>
+  <script src="../../js/store.js"></script>
+  <script src="../../js/layout.js"></script>
+  <script>
+    const user = bootPage({
+      role: 'admin', currentPage: 'settings.html',
+      crumb: 'System', title: 'Settings'
+    });
+    if (!user) throw new Error('Not authenticated');
+
+    function renderPage() {
+      const s = Store.load().settings;
+      document.getElementById('page-content').innerHTML = `
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:24px;">
+          <div class="panel">
+            <div class="panel-head"><h3>Submission Window</h3></div>
+            <div class="panel-body">
+              <div class="form-row">
+                <div class="field">
+                  <label>Start Date</label>
+                  <input type="date" id="start" value="${s.submissionStart}">
+                </div>
+                <div class="field">
+                  <label>End Date</label>
+                  <input type="date" id="end" value="${s.submissionEnd}">
+                </div>
+              </div>
+              <div class="field">
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                  <input type="checkbox" id="open" ${s.windowOpen?'checked':''}>
+                  <span style="text-transform:none; letter-spacing:0;">Submission window currently open</span>
+                </label>
+              </div>
+              <p class="helper-text">When closed, teachers cannot edit or submit new entries. Submissions auto-lock after the end date.</p>
+              <button class="btn btn-dark" onclick="saveSettings()" style="margin-top:14px;">${ICONS.check} Save Settings</button>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head"><h3>Backup & Restore</h3></div>
+            <div class="panel-body">
+              <p style="margin-bottom:14px; color:var(--ink-soft);">Download a JSON backup of the entire database. You can restore it later or share it with another administrator.</p>
+              <div class="btn-group">
+                <button class="btn btn-dark" onclick="backup()">${ICONS.download} Download Backup</button>
+                <label class="btn">
+                  ${ICONS.upload} Restore
+                  <input type="file" accept=".json" onchange="restoreBackup(event)" style="display:none;">
+                </label>
+              </div>
+              <div class="divider"></div>
+              <h4 style="color:var(--danger); margin-bottom:8px;">Danger Zone</h4>
+              <p style="margin-bottom:14px; color:var(--ink-soft); font-size:.88rem;">Reset the entire portal to factory defaults. All data will be lost.</p>
+              <button class="btn btn-danger" onclick="resetAll()">${ICONS.trash} Factory Reset</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h3>Institution Information</h3></div>
+          <div class="panel-body">
+            <div class="form-row">
+              <div class="field"><label>Institution Name</label><input id="inst" value="${s.institutionName}"></div>
+            </div>
+            <button class="btn btn-dark" onclick="saveSettings()">${ICONS.check} Save</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function saveSettings() {
+      Store.saveSettings({
+        submissionStart: document.getElementById('start')?.value,
+        submissionEnd: document.getElementById('end')?.value,
+        windowOpen: document.getElementById('open')?.checked,
+        institutionName: document.getElementById('inst')?.value,
+      });
+      Store.log('settings', 'Updated settings');
+      toast('Settings saved', 'success');
+    }
+
+    function backup() {
+      const data = JSON.stringify(Store.load(), null, 2);
+      const blob = new Blob([data], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `bpoly_backup_${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+      Store.log('backup', 'Database backup downloaded');
+      toast('Backup downloaded', 'success');
+    }
+
+    function restoreBackup(e) {
+      const f = e.target.files[0];
+      if (!f) return;
+      const reader = new FileReader();
+      reader.onload = ev => {
+        try {
+          const data = JSON.parse(ev.target.result);
+          confirmDialog('This will OVERWRITE all current data. Continue?', () => {
+            localStorage.setItem('bpoly_portal_db_v1', JSON.stringify(data));
+            Store.log('restore', 'Restored from backup');
+            toast('Database restored', 'success');
+            setTimeout(() => location.reload(), 500);
+          });
+        } catch {
+          toast('Invalid backup file', 'danger');
+        }
+      };
+      reader.readAsText(f);
+    }
+
+    function resetAll() {
+      confirmDialog('Reset the entire portal? This action cannot be undone.', () => {
+        Store.reset();
+        toast('Portal reset to defaults', 'success');
+        setTimeout(() => location.reload(), 500);
+      });
+    }
+
+    renderPage();
+  </script>
+</body>
+</html>
